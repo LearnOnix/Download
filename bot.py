@@ -90,7 +90,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # 4. Execution
 if __name__ == '__main__':
-    TOKEN = 'YOUR_BOT_TOKEN_HERE' # 🔥 Put your token here
+    TOKEN = '8245872361:AAFFOP814_N1VI6brkwbR58LCnRIq13RBhQ' # 🔥 Put your token here
     
     app = ApplicationBuilder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
