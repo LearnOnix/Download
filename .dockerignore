@@ -1,0 +1,37 @@
+# Version control
+.git
+.gitignore
+
+# Environment files (don't include in build, will be mounted)
+.env
+.env.local
+
+# Python cache
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache
+
+# Virtual environment
+venv
+env
+.env
+.venv
+
+# IDE files
+.vscode
+.idea
+*.swp
+
+# Docker files (don't need these inside)
+Dockerfile
+.dockerignore
+docker-compose.yml
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
