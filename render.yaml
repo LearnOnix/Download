@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: ytdlp-bot
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python bot.py
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: MAX_WORKERS
+        value: 4
+      - key: PLAYLIST_LIMIT
+        value: 10
