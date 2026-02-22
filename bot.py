@@ -590,9 +590,3 @@ async def setup_webhook(app):
     """Setup webhook for Telegram"""
     webhook_url = f"{RENDER_EXTERNAL_URL}{WEBHOOK_PATH}"
     logger.info(f"🔗 Setting webhook: {webhook_url}")
-    
-    try:
-        # Delete any existing webhook
-        await app.bot.delete_webhook()
-        
-        # Set new webhook with
