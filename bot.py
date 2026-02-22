@@ -2,11 +2,11 @@
 # -*- coding: utf-8 -*-
 """
 ╔═══════════════════════════════════════════════════════════════╗
-║              YT-DLP | RENDER-OPTIMIZED v2.71829              ║
+║              YT-DLP | RENDER-PROD v2.71830                   ║
 ║                ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━                  ║
-║  [∫] webhook mode enabled for Render                          ║
-║  [∑] environment-aware configuration                          ║
-║  [π] production-ready                                          ║
+║  [∫] single-process architecture                             ║
+║  [∑] webhook with secret token                               ║
+║  [π] production locked                                       ║
 ╚═══════════════════════════════════════════════════════════════╝
 """
 
@@ -16,49 +16,54 @@ import logging
 import yt_dlp
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
+from telegram.ext import PicklePersistence
 import re
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
-import time
 from datetime import timedelta
 import math
 from flask import Flask, request
 import threading
+import signal
+import time
 
 # ============================================================================
-# RENDER-SPECIFIC CONFIGURATION | [λ] = environment only
+# RENDER CONFIGURATION - MUST BE FIRST
 # ============================================================================
 
-# NEVER hardcode tokens - Render environment only!
+# Get token from environment - NO DEFAULTS!
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
 if not BOT_TOKEN:
-    print("❌ CRITICAL: BOT_TOKEN environment variable not set!")
+    print("❌ FATAL: BOT_TOKEN environment variable not set!")
     print("➡️  Go to Render Dashboard > Environment Variables")
-    print("➡️  Add BOT_TOKEN = your_actual_bot_token")
+    print("➡️  Add BOT_TOKEN = your_actual_bot_token_from_BotFather")
     sys.exit(1)
 
-# Render provides PORT automatically
-PORT = int(os.environ.get('PORT', 8080))
+# Render settings
+PORT = int(os.environ.get('PORT', 10000))  # Render default is 10000
 RENDER_EXTERNAL_URL = os.environ.get('RENDER_EXTERNAL_URL')
 if not RENDER_EXTERNAL_URL:
     print("⚠️  Warning: RENDER_EXTERNAL_URL not set, using localhost")
     RENDER_EXTERNAL_URL = f"https://localhost:{PORT}"
 
-MAX_WORKERS = int(os.environ.get('MAX_WORKERS', 4))
-PLAYLIST_LIMIT = int(os.environ.get('PLAYLIST_LIMIT', 10))
+# Generate a webhook secret automatically
+import secrets
+WEBHOOK_SECRET = secrets.token_urlsafe(32)
+WEBHOOK_PATH = f"/webhook/{WEBHOOK_SECRET}"
+
+# Performance settings
+MAX_WORKERS = int(os.environ.get('MAX_WORKERS', 2))  # Lower for Render's free tier
+PLAYLIST_LIMIT = int(os.environ.get('PLAYLIST_LIMIT', 5))  # Lower to save memory
 
 # ============================================================================
-# LOGGING | Production-ready
+# LOGGING - Write to stdout for Render logs
 # ============================================================================
 
 logging.basicConfig(
     format='%(asctime)s | %(levelname)8s | %(message)s',
     datefmt='%H:%M:%S',
     level=logging.INFO,
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler('bot.log') if os.path.exists('/tmp') else logging.StreamHandler(sys.stdout)
-    ]
+    handlers=[logging.StreamHandler(sys.stdout)]  # Only stdout for Render
 )
 logger = logging.getLogger(__name__)
 
@@ -125,7 +130,7 @@ def calculate_quality_score(format_dict: dict) -> float:
     return score
 
 # ============================================================================
-# VIDEO EXTRACTION (Your existing function, with timeout)
+# VIDEO EXTRACTION - WITH TIMEOUTS
 # ============================================================================
 
 def get_video_info_sync(url: str) -> dict:
@@ -137,9 +142,10 @@ def get_video_info_sync(url: str) -> dict:
         'no_warnings': True,
         'extract_flat': False,
         'ignoreerrors': True,
-        'format_sort': ['res:1080', 'ext:mp4:m4a'],
+        'format_sort': ['res:720', 'ext:mp4:m4a'],  # Lower default for speed
         'retries': 2,
-        'timeout': 30,  # Add timeout
+        'timeout': 20,  # Shorter timeout for Render
+        'socket_timeout': 20,
         'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
     }
     
@@ -170,7 +176,7 @@ def get_video_info_sync(url: str) -> dict:
                     'count': len(videos)
                 }
             
-            # Single video (your existing logic)
+            # Single video
             formats = info.get('formats', [])
             
             scored_formats = []
@@ -541,7 +547,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 # ============================================================================
-# RENDER WEBHOOK SETUP | CRITICAL FOR RENDER
+# SIMPLIFIED RENDER WEBHOOK SETUP
 # ============================================================================
 
 # Create Flask app for health checks and webhook
@@ -555,14 +561,22 @@ def home():
 def health():
     return "OK", 200
 
-@flask_app.route(f'/{BOT_TOKEN}' if BOT_TOKEN else '/webhook', methods=['POST'])
+@flask_app.route(WEBHOOK_PATH, methods=['POST'])
 def webhook():
     """Handle Telegram webhook requests"""
     if not application:
         return "Application not ready", 503
     
-    update = Update.de_json(request.get_json(force=True), application.bot)
-    asyncio.run_coroutine_threadsafe(application.process_update(update), application.loop)
+    # Convert Flask request to dict and process
+    update_data = request.get_json(force=True)
+    
+    # Create a task in the bot's event loop
+    asyncio.run_coroutine_threadsafe(
+        application.process_update(
+            Update.de_json(update_data, application.bot)
+        ),
+        application.loop
+    )
     return "OK", 200
 
 def run_flask():
@@ -572,21 +586,13 @@ def run_flask():
 # Global application reference
 application = None
 
-async def setup_webhook(application):
+async def setup_webhook(app):
     """Setup webhook for Telegram"""
-    webhook_url = f"{RENDER_EXTERNAL_URL}/{BOT_TOKEN}"
+    webhook_url = f"{RENDER_EXTERNAL_URL}{WEBHOOK_PATH}"
     logger.info(f"🔗 Setting webhook: {webhook_url}")
     
     try:
-        await application.bot.set_webhook(url=webhook_url)
-        webhook_info = await application.bot.get_webhook_info()
-        logger.info(f"✅ Webhook set: {webhook_info.url}")
-    except Exception as e:
-        logger.error(f"❌ Webhook setup failed: {e}")
-        raise
-
-async def shutdown(application):
-    """Clean shutdown"""
-    logger.info("🛑 Shutting down...")
-    executor.shutdown(wait=False)
-    await application.bot.delet
+        # Delete any existing webhook
+        await app.bot.delete_webhook()
+        
+        # Set new webhook with
