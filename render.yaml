@@ -2,12 +2,14 @@ services:
   - type: web
     name: ytdlp-bot
     runtime: python
+    region: oregon  # or frankfurt, singapore, etc.
+    plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: python bot.py
     envVars:
       - key: BOT_TOKEN
-        sync: false
+        sync: false  # Set manually in dashboard
       - key: MAX_WORKERS
-        value: 4
+        value: 2
       - key: PLAYLIST_LIMIT
-        value: 10
+        value: 5
